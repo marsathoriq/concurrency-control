@@ -17,7 +17,7 @@ string ModeToString(CCMode mode) {
     case OCC:                    return " OCC      ";
     case P_OCC:                  return " OCC-P    ";
     case MVCC:                   return " MVCC     ";
-    default:                     return "INVALID MODE";
+    default:                     return " INVALID MODE";
   }
 }
 
