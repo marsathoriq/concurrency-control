@@ -9,34 +9,41 @@
 #include "txn/lock_manager.h"
 
 using std::deque;
-
+// HARD PARAPHRASE 
 LockManager::~LockManager() {
   // Cleanup lock_table_
-  for (auto it = lock_table_.begin(); it != lock_table_.end(); it++) {
-    delete it->second;
+  auto iterator = lock_table_.begin();
+  while(iterator != lock_table_.end()){
+    delete iterator->second;
+    iterator++;
   }
+  // for (iterator = lock_table_.begin(); iterator != lock_table_.end(); iterator++) {
+  //   delete iterator->second;
+  // }
 }
 
+// HARD PARAPHRASE 
 deque<LockManager::LockRequest>* LockManager::_getLockQueue(const Key& key) {
-  deque<LockRequest> *dq = lock_table_[key];
-  if (!dq) {
-    dq = new deque<LockRequest>();
-    lock_table_[key] = dq;
+  deque<LockRequest> *lockedresource = lock_table_[key];
+  if (!lockedresource) {
+    lockedresource = new deque<LockRequest>();
+    lock_table_[key] = lockedresource;
   }
-  return dq;
+  return lockedresource;
 }
 
 LockManagerA::LockManagerA(deque<Txn*>* ready_txns) {
   ready_txns_ = ready_txns;
 }
 
+// PARAPHRASE
 bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
+  deque<LockRequest> *LockQueue = _getLockQueue(key);
+  LockRequest lockRequest(EXCLUSIVE, txn);
   bool empty = true;
-  LockRequest rq(EXCLUSIVE, txn);
-  deque<LockRequest> *dq = _getLockQueue(key);
 
-  empty = dq->empty();
-  dq->push_back(rq);
+  empty = LockQueue->empty();
+  LockQueue->push_back(lockRequest);
 
   if (!empty) { // Add to wait list, doesn't own lock.
     txn_waits_[txn]++;
@@ -44,24 +51,34 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
   return empty;
 }
 
+
 bool LockManagerA::ReadLock(Txn* txn, const Key& key) {
   // Since Part 1A implements ONLY exclusive locks, calls to ReadLock can
   // simply use the same logic as 'WriteLock'.
   return WriteLock(txn, key);
 }
 
+// PARAPHRASE
 void LockManagerA::Release(Txn* txn, const Key& key) {
   deque<LockRequest> *queue = _getLockQueue(key);
   bool removedOwner = true; // Is the lock removed the lock owner?
-
+  auto iterator= queue->begin();
   // Delete the txn's exclusive lock.
-  for (auto it = queue->begin(); it < queue->end(); it++) {
+  while (iterator < queue->end()){
     if (it->txn_ == txn) { // TODO is it ok to just compare by address?
         queue->erase(it);
         break;
     }
     removedOwner = false;
+    iterator++;
   }
+  // for (iterator = queue->begin(); iterator < queue->end(); iterator++) {
+  //   if (it->txn_ == txn) { // TODO is it ok to just compare by address?
+  //       queue->erase(it);
+  //       break;
+  //   }
+  //   removedOwner = false;
+  // }
 
   if (!queue->empty() && removedOwner) {
     // Give the next transaction the lock
@@ -74,14 +91,15 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
   }
 }
 
+// PARAPHRASE
 LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
-  deque<LockRequest> *dq = _getLockQueue(key);
-  if (dq->empty()) {
+  deque<LockRequest> *lockStatus = _getLockQueue(key);
+  if (lockStatus->empty()) {
     return UNLOCKED;
   } else {
-    vector<Txn*> _owners;
-    _owners.push_back(dq->front().txn_);
-    *owners = _owners;
+    vector<Txn*> tempowners;
+    tempowners.push_back(dq->front().txn_);
+    *owners = tempowners;
     return EXCLUSIVE;
   }
 }
@@ -90,35 +108,38 @@ LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
   ready_txns_ = ready_txns;
 }
 
-bool LockManagerB::_addLock(LockMode mode, Txn* txn, const Key& key) {
-  LockRequest rq(mode, txn);
+// HARD PARAPHRASE 
+bool LockManagerB::_addLock(LockMode lockMode, Txn* txn, const Key& key) {
   LockMode status = Status(key, nullptr);
+  LockRequest request(lockMode, txn);
 
-  deque<LockRequest> *dq = _getLockQueue(key);
-  dq->push_back(rq);
+  deque<LockRequest> *lockStatus = _getLockQueue(key);
+  lockStatus->push_back(request);
 
-  bool granted = status == UNLOCKED;
-  if (mode == SHARED) {
-    granted |= _noExclusiveWaiting(key);
+  bool grantAccess = status == UNLOCKED;
+  if (lockMode == SHARED) {
+    grantAccess |= _noExclusiveWaiting(key);
   } else {
     _numExclusiveWaiting[key]++;
   }
 
-  if (!granted)
+  if (!grantAccess)
     txn_waits_[txn]++;
 
-  return granted;
+  return grantAccess;
 }
 
-
+// PARAPHRASE
 bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
   return _addLock(EXCLUSIVE, txn, key);
 }
 
+// PARAPHRASE
 bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
   return _addLock(SHARED, txn, key);
 }
 
+// PARAPHRASE
 void LockManagerB::Release(Txn* txn, const Key& key) {
   deque<LockRequest> *queue = _getLockQueue(key);
 
@@ -148,6 +169,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
   }
 }
 
+// PARAPHRASE
 LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
   deque<LockRequest> *dq = _getLockQueue(key);
   if (dq->empty()) {
@@ -173,6 +195,7 @@ LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
   return mode;
 }
 
+// HARD PARAPHRASE 
 inline bool LockManagerB::_noExclusiveWaiting(const Key& key) {
   return _numExclusiveWaiting[key] == 0;
 }
