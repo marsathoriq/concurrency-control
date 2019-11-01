@@ -65,8 +65,8 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
   auto iterator= queue->begin();
   // Delete the txn's exclusive lock.
   while (iterator < queue->end()){
-    if (it->txn_ == txn) { // TODO is it ok to just compare by address?
-        queue->erase(it);
+    if (iterator->txn_ == txn) { // TODO is it ok to just compare by address?
+        queue->erase(iterator);
         break;
     }
     removedOwner = false;
@@ -98,7 +98,7 @@ LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
     return UNLOCKED;
   } else {
     vector<Txn*> tempowners;
-    tempowners.push_back(dq->front().txn_);
+    tempowners.push_back(lockStatus->front().txn_);
     *owners = tempowners;
     return EXCLUSIVE;
   }
