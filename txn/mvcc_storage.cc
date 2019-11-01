@@ -47,6 +47,28 @@ bool MVCCStorage::Read(Key key, Value* result, int txn_unique_id) {
   
   // Hint: Iterate the version_lists and return the verion whose write timestamp
   // (version_id) is the largest write timestamp less than or equal to txn_unique_id.
+
+  if (!mvcc_data_.count(key)){
+    return false;
+  }
+
+  deque<Version*> *data = mvcc_data_[key];
+  if (data->empty()) {
+    return false;
+  }
+  else {
+    int max_read = 0;
+    deque<Version*> version_list = *data;
+    for (deque<Version*>::iterator it = version_list.begin();
+      it != version_list.end(); ++it){
+        Version* v = *it;
+        
+        if (v->version_id_ <= txn_unique_id && v->version_id_ > max_read){
+          *result = v->value_;
+          v->max_read_id_ = txn_unique_id;
+        }  
+    }
+  }
   
   return true;
 }
@@ -65,7 +87,18 @@ bool MVCCStorage::CheckWrite(Key key, int txn_unique_id) {
   // Note that you don't have to call Lock(key) in this method, just
   // call Lock(key) before you call this method and call Unlock(key) afterward.
   
-  
+  deque<Version*> *data = mvcc_data_[key];
+  if (data->empty()) {
+    return true;
+  }
+  else {
+    deque<Version*> version_list = *data;
+    Version* v = version_list.back();
+    if (v->max_read_id_ > txn_unique_id){
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -79,6 +112,14 @@ void MVCCStorage::Write(Key key, Value value, int txn_unique_id) {
   // into the version_lists. Note that InitStorage() also calls this method to init storage. 
   // Note that you don't have to call Lock(key) in this method, just
   // call Lock(key) before you call this method and call Unlock(key) afterward.
+
+  deque<Version*> *data = mvcc_data_[key];
+  Lock(key);
+  if (CheckWrite(key, txn_unique_id)){
+    Version v = {.value_ = value, .max_read_id_ = txn_unique_id, .version_id_ = txn_unique_id};
+    data->push_back(&v);
+  };
+  Unlock(key);
 }
 
 
