@@ -87,6 +87,10 @@ bool MVCCStorage::CheckWrite(Key key, int txn_unique_id) {
   // Note that you don't have to call Lock(key) in this method, just
   // call Lock(key) before you call this method and call Unlock(key) afterward.
   
+  if (!mvcc_data_.count(key)){
+    return false;
+  }
+
   deque<Version*> *data = mvcc_data_[key];
   if (data->empty()) {
     return true;
@@ -113,13 +117,14 @@ void MVCCStorage::Write(Key key, Value value, int txn_unique_id) {
   // Note that you don't have to call Lock(key) in this method, just
   // call Lock(key) before you call this method and call Unlock(key) afterward.
 
-  deque<Version*> *data = mvcc_data_[key];
-  Lock(key);
   if (CheckWrite(key, txn_unique_id)){
-    Version v = {.value_ = value, .max_read_id_ = txn_unique_id, .version_id_ = txn_unique_id};
-    data->push_back(&v);
+    deque<Version*> *data = mvcc_data_[key];
+    struct Version *v = (struct Version*)malloc(sizeof(struct Version));
+    v->value_ = value;
+    v->max_read_id_ = txn_unique_id;
+    v->version_id_ = txn_unique_id;
+    data->push_back(v);
   };
-  Unlock(key);
 }
 
 

@@ -365,9 +365,12 @@ void TxnProcessor::RunMVCCScheduler() {
       if (finished->Status() == COMPLETED_A) {
         finished->status_ = ABORTED;
       } else {
-        bool valid = MVCCCheckWrites(finished);
+        bool valid = MVCCCheckWrites(*finished);
         if (!valid) {
-          MVCCUnlockWriteKeys(txn);
+          // Release all locks
+          for (auto&& key : txn->writeset_) {
+            storage_->Unlock(key);
+          }
 
           // Cleanup and restart
           finished->reads_.empty();
@@ -383,7 +386,10 @@ void TxnProcessor::RunMVCCScheduler() {
           // Commit the transaction
           ApplyWrites(finished);
 
-          MVCCUnlockWriteKeys(txn);
+          // Release all locks
+          for (auto&& key : txn->writeset_) {
+            storage_->Unlock(key);
+          }
           txn->status_ = COMMITTED;
         }
       }
@@ -427,29 +433,16 @@ void TxnProcessor::MVCCExecuteTxn(Txn* txn) {
 /**
  * Precondition: No storage writes are occuring during execution.
  */
-bool TxnProcessor::MVCCCheckWrites(Txn* txn){
-  MVCCLockWriteKeys(txn);
+bool TxnProcessor::MVCCCheckWrites(const Txn &txn) const{
+  // Acquire all locks
+  for (auto&& key : txn.writeset_) {
+    storage_->Lock(key);
+  }
 
-  for (auto&& key : txn->writeset_) {
-    if (!storage_->CheckWrite(key, Txn->unique_id_))
+  for (auto&& key : txn.writeset_) {
+    if (!storage_->CheckWrite(key, txn.unique_id_))
       return false;
   }
 
   return true;
 }
-
-void MVCCLockWriteKeys(Txn* txn){
-  // Acquire all locks
-  for (auto&& key : txn->writeset_) {
-    storage_->Lock(key);
-  }
-}
-
-void MVCCUnlockWriteKeys(Txn* txn){
-  // Release all locks
-  for (auto&& key : txn->writeset_) {
-    storage_->Unlock(key);
-  }
-}
-
-void GarbageCollection();
