@@ -260,63 +260,62 @@ void TxnProcessor::ApplyWrites(Txn* txn) {
   }
 }
 
-/**
- * Precondition: No storage writes are occuring during execution.
- */
-bool TxnProcessor::OCCValidateTransaction(const Txn &txn) const {
-  // Check
-  for (auto&& key : txn.readset_) {
-    if (txn.occ_start_time_ < storage_->Timestamp(key))
-      return false;
-  }
-
-  for (auto&& key : txn.writeset_) {
-    if (txn.occ_start_time_ < storage_->Timestamp(key))
-      return false;
-  }
-
-  return true;
-}
-
 void TxnProcessor::RunOCCScheduler() {
-  // Fetch transaction requests, and immediately begin executing them.
+  // Start executing transaction requests.
+  Txn *transaction;
+  // While thread pool active
   while (tp_.Active()) {
-    Txn *txn;
-    if (txn_requests_.Pop(&txn)) {
-
-      // Start txn running in its own thread.
-      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
-                  this,
-                  &TxnProcessor::ExecuteTxn,
-                  txn));
+    if (txn_requests_.Pop(&transaction)) {
+      // Get OCC start time
+      transaction->occ_start_time_ = GetTime();
+      // Execute transaction in a thread
+      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(this, &TxnProcessor::ExecuteTxn, transaction));
     }
 
-    // Validate completed transactions, serially
-    Txn *finished;
-    while (completed_txns_.Pop(&finished)) {
-      if (finished->Status() == COMPLETED_A) {
-        finished->status_ = ABORTED;
-      } else {
-        bool valid = OCCValidateTransaction(*finished);
-        if (!valid) {
-          // Cleanup and restart
-          finished->reads_.empty();
-          finished->writes_.empty();
-          finished->status_ = INCOMPLETE;
+    // Verified the transaction whether has been modified or not
+    bool hasModified = false;
+    // Check the completed transaction
+    while (completed_txns_.Pop(&transaction)) {
+      // If transaction is executed with commit vote
+      if (transaction->Status() == COMPLETED_C) {
+        // Check read timestamp of transaction
+        for (set<Key>::iterator iter = transaction->readset_.begin(); iter != transaction->readset_.end(); ++iter) {
+          if (storage_->Timestamp(*iter) > transaction->occ_start_time_) {
+            hasModified = true;
+            break;
+          }
+        }
 
-          mutex_.Lock();
-          txn->unique_id_ = next_unique_id_;
-          next_unique_id_++;
-          txn_requests_.Push(finished);
-          mutex_.Unlock();
-        } else {
-          // Commit the transaction
-          ApplyWrites(finished);
-          txn->status_ = COMMITTED;
+        // Check write timestamp of transaction
+        for (set<Key>::iterator iter = transaction->writeset_.begin(); iter != transaction->writeset_.end(); ++iter) {
+          if (storage_->Timestamp(*iter) > transaction->occ_start_time_) {
+            hasModified = true;
+            break;
+          }
+        }
+
+        // The transaction has not been modified
+        if (!hasModified) {
+          // Apply write and commit transaction
+          ApplyWrites(transaction);
+          transaction->status_ = COMMITTED;
+        } 
+        // The transaction has been modified
+        else {
+          // Cleanup and restart transaction
+          transaction->reads_.empty();
+          transaction->writes_.empty();
+          transaction->status_ = INCOMPLETE;
+
+          NewTxnRequest(transaction);
         }
       }
+      // If transaction is executed with abort vote
+      else if (transaction->Status() == COMPLETED_A) {
+        transaction->status_ = ABORTED;
+      } 
 
-      txn_results_.Push(finished);
+      txn_results_.Push(transaction);
     }
   }
 }
